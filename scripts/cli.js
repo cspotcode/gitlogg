@@ -14,6 +14,7 @@ import {console, create as createConsole} from './console';
 import {NullStream} from './null-stream';
 import {outputIntermediateGitLog} from './output-intermediate-gitlog';
 import {parseToJson} from './gitlogg-parse-json';
+import {mapConcurrent} from './map-concurrent';
 
 // Stack traces will use sourcemaps to show source code locations
 try {
@@ -90,11 +91,12 @@ const NUM_THREADS = argv.parallel
 console.log(`${ blue }Info: Calculating in ${ NUM_THREADS } thread(s)${ reset }`);
 
 
+/** Array of normalized, absolute paths to git repositories */
 const repositories = typeof argv.directory === 'string'
   // Each subdirectory of --directory is a git repository
-  ? fs.readdirSync(argv.directory).map(path => Path.join(argv.directory, path)).filter(path => fs.statSync(path).isDirectory())
+  ? fs.readdirSync(argv.directory).map(path => Path.join(Path.resolve(argv.directory), path)).filter(path => fs.statSync(path).isDirectory())
   // Each positional argument is a path to a git repository
-  : argv._;
+  : argv._.map(p => Path.resolve(Path.normalize(p)));
 
 // number of directories (repos)
 const DIRCOUNT = repositories.length;
@@ -126,42 +128,12 @@ async function run() {
     const json = parseToJson(intermediate, dirName);
     output[dirName] = json;
   }, NUM_THREADS);
-  const outputFile = typeof argv.out === 'string' ? argv.out : 1;
-  fs.writeFileSync(outputFile, JSON.stringify(output, null, 2));
+
+  const jsonString = JSON.stringify(output, null, 2);
+  if(typeof argv.out === 'string') {
+    fs.writeFileSync(argv.out, jsonString);
+  } else {
+    fs.writeSync(1, jsonString, undefined, 'utf8');
+  }
   console.log(`${ green }Done!${ reset }`);
-}
-
-
-function mapConcurrent(array, map, max) {
-  return new Promise((res, rej) => {
-    if(array.length === 0) return [];
-    if(max < 1) throw new Error('max must be >= 1');
-
-    const outputValues = [];
-    let halt = false;
-    let running = 0;
-    let next = 0;
-    let total = array.length;
-    while(running < max && next < total) startNext();
-    function startNext() {
-      running++;
-      const i = next++;
-      const promise = map(array[i], i, array);
-      Promise.resolve(promise).then((v) => onResolved(i, v), onRejected);
-    }
-    function onResolved(index, val) {
-      if(halt) return;
-      outputValues[index] = val;
-      running--;
-      if(next < total) {
-        startNext();
-      } else if(running === 0) {
-        res(outputValues);
-      }
-    }
-    function onRejected(err) {
-      halt = true;
-      rej(err);
-    }
-  });
 }

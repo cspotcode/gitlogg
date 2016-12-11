@@ -47,7 +47,10 @@ export function parseToJson(rawInput, repoName) {
       // The last field for each commit includes the trailing newline output by `git log`; remove it
       item[totalFields - 1] = item[totalFields - 1].slice(0, -1);
 
-      const commit = {};
+      const commit = {
+        repository: repoName,
+        commit_nr: index + 1
+      };
       fields.forEach((field, i) => {
         commit[field.identifier] = item[i];
       });
@@ -58,7 +61,19 @@ export function parseToJson(rawInput, repoName) {
       const deletions = commit.deletions = commitChanges.deletions;
       commit.impact = insertions - deletions;
 
-      commit.commit_nr = index + 1;
+      // Perform more normalization and cleanup of fields
+      commit.shortstats = commit.shortstats.trim();
+      commit.parent_hashes = delimitedArray(commit.parent_hashes, ' ');
+      commit.parent_hashes_abbreviated = delimitedArray(commit.parent_hashes_abbreviated, ' ');
+      commit.ref_names = delimitedArray(commit.ref_names, ', ');
+      if(!commit.encoding.length) commit.encoding = undefined;
+      if(!commit.commit_notes.length) commit.commit_notes = undefined;
+      // If commit is not signed
+      if(commit.signature_validity === 'N') {
+        commit.raw_GPG_verification_message = undefined;
+        commit.signer_name = undefined;
+        commit.key = undefined;
+      }
 
       return commit;
     });
@@ -66,4 +81,8 @@ export function parseToJson(rawInput, repoName) {
   console.timeEnd(`${ green }JSON output for ${ repoName } generated in${ reset }`);
 
   return commits;
+}
+
+function delimitedArray(field, delim) {
+  return field.length ? field.split(delim) : [];
 }
